@@ -12,26 +12,24 @@ import time
 from requests.auth import HTTPProxyAuth
 import random
 
-
+pd.options.mode.chained_assignment = None 
 
 PREFIX = 'https://www.hltv.org'
 proxyDict = None
 proxyAuth = None
 
 
-def get_parsed_page(url):
+def get_parsed_page(url, proxy_=None, auth_=None):
     TIMESLEEP = random.uniform(0.25, 0.3)
     time.sleep(TIMESLEEP)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+    }
     #Using requests.Session to bypass cloudflare protection
     session = requests.Session()
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
     session.headers = headers
-    got_req = session.get(url)
-    if 'cf-ray' in got_req.headers:
-        cookie = got_req.cookies.get_dict()
-        headers['Cookie'] = '; '.join([f'{key}={value}' for key, value in cookie.items()])
-        got_req = session.get(url, headers=headers)
-    return BeautifulSoup(got_req.text, 'html.parser')
+    got_req = session.get(url, proxies=proxy_, auth=auth_)
+    return BeautifulSoup(got_req.content, 'html.parser')
 
 
 #
@@ -41,19 +39,20 @@ def get_results_url(filename=None, pages_with_results=[0]):
     all_matches = []
     for i in pages_with_results:
         if i == 0:
-            results = get_parsed_page('http://www.hltv.org/results')
+            results = get_parsed_page('http://www.hltv.org/results', proxyDict, proxyAuth)
         else:
-            results = get_parsed_page(f'http://www.hltv.org/results?offset={i}00')
+            results = get_parsed_page(f'http://www.hltv.org/results?offset={i}00', proxyDict, proxyAuth)
         # list of matches
         all_matches += [url_.find('a', {"class": "a-reset"})['href'] for url_ in results.find('div',
                                      {"class": "results-all", 'data-zonedgrouping-group-classes': "results-sublist"}).find_all('div', {"class": "result-con"})]
     all_matches = np.array(all_matches)
     data = pd.DataFrame(all_matches, columns=['match_url'])
     data.index.name = 'id'
-    if filename:
+    if filename is None:
+        return data
+    else:
         data.to_csv(f'{filename}.csv')
-    return data
-
+        return data
 
 
 class MatchPageParams:
@@ -321,8 +320,7 @@ class MatchPageParams:
     
     def _get_url_teams_(self):
         self.parse_page()
-        tmp = self.MATCH_PAGE.find('div', {'class': 'teamsBox'}).\
-                find_all('div', {'class': 'team'})
+        tmp = self.MATCH_PAGE.find('div', {'class': 'teamsBox'}).find_all('div', {'class': 'team'})
         self.df['url_team1'][self.MATCH_ID] = tmp[0].find('a')['href']
         self.df['url_team2'][self.MATCH_ID] = tmp[1].find('a')['href']
     
