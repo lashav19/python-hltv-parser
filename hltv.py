@@ -13,42 +13,50 @@ from requests.auth import HTTPProxyAuth
 import random
 
 
+
 PREFIX = 'https://www.hltv.org'
 proxyDict = None
 proxyAuth = None
 
 
-def get_parsed_page(url, proxy_=None, auth_=None):
+def get_parsed_page(url):
     TIMESLEEP = random.uniform(0.25, 0.3)
     time.sleep(TIMESLEEP)
-    got_req = requests.get(url, proxies=proxy_, auth=auth_).text
-    return BeautifulSoup(got_req)
+    #Using requests.Session to bypass cloudflare protection
+    session = requests.Session()
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+    session.headers = headers
+    got_req = session.get(url)
+    if 'cf-ray' in got_req.headers:
+        cookie = got_req.cookies.get_dict()
+        headers['Cookie'] = '; '.join([f'{key}={value}' for key, value in cookie.items()])
+        got_req = session.get(url, headers=headers)
+    return BeautifulSoup(got_req.text, 'html.parser')
 
+
+#
 
 # download all urls matches
 def get_results_url(filename=None, pages_with_results=[0]):
     all_matches = []
     for i in pages_with_results:
         if i == 0:
-            results = get_parsed_page('http://www.hltv.org/results', proxyDict, proxyAuth)
+            results = get_parsed_page('http://www.hltv.org/results')
         else:
-            results = get_parsed_page(f'http://www.hltv.org/results?offset={i}00', proxyDict, proxyAuth)
+            results = get_parsed_page(f'http://www.hltv.org/results?offset={i}00')
         # list of matches
-        all_matches += [url_.find('a', {"class": "a-reset"})['href'] for url_ in
-                        results.find('div',
-                                     {"class": "results-all", 'data-zonedgrouping-group-classes': "results-sublist"}).
-                        find_all('div', {"class": "result-con"})]
+        all_matches += [url_.find('a', {"class": "a-reset"})['href'] for url_ in results.find('div',
+                                     {"class": "results-all", 'data-zonedgrouping-group-classes': "results-sublist"}).find_all('div', {"class": "result-con"})]
     all_matches = np.array(all_matches)
     data = pd.DataFrame(all_matches, columns=['match_url'])
     data.index.name = 'id'
-    if filename is None:
-        return data
-    else:
+    if filename:
         data.to_csv(f'{filename}.csv')
-        return data
+    return data
 
 
-    class MatchPageParams:
+
+class MatchPageParams:
     def __init__(self, df, start_index=None, finish_index=None):
         self.df = df
         self.MATCH_PAGE = None
