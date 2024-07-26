@@ -11,25 +11,37 @@ from datetime import datetime
 import time
 from requests.auth import HTTPProxyAuth
 import random
+from src.proxy import TorProxy
+import os
 
 pd.options.mode.chained_assignment = None 
 
 PREFIX = 'https://www.hltv.org'
-proxyDict = None
+proxyDict = {
+        'http': 'socks5h://localhost:9050',
+        'https': 'socks5h://localhost:9050'
+}
 proxyAuth = None
 
-
-def get_parsed_page(url, proxy_=None, auth_=None):
-    TIMESLEEP = random.uniform(0.25, 0.3)
+def get_parsed_page(url, proxy_=None, auth_=None, COOKIE=None):
+    TIMESLEEP = 1
     time.sleep(TIMESLEEP)
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+        'Postman-Token': 'a9b83736-0889-425d-95d8-80685848346b',
+        'User-Agent': 'PostmanRuntime/7.37.3',
+        'Cookie': COOKIE
     }
     #Using requests.Session to bypass cloudflare protection
     session = requests.Session()
     session.headers = headers
-    got_req = session.get(url, proxies=proxy_, auth=auth_)
-    return BeautifulSoup(got_req.content, 'html.parser')
+    COOKIE = session.cookies
+    got_req = session.get(url)
+    soup = BeautifulSoup(got_req.content, 'html.parser')
+    if soup == "<title>Just a moment...</title>" or soup.title.string == "Just a moment...":
+        print("Cloudflare protection detected")
+        COOKIE = None
+        return get_parsed_page(url, proxy_, auth_)
+    return soup
 
 
 #
@@ -65,6 +77,7 @@ class MatchPageParams:
         self.finish_index = finish_index
 
     def add_all_params(self):
+
         time_start = time.time()
         for match in self.df['match_url'][self.start_index:self.finish_index]:
             self.MATCH_ID = list(self.df['match_url']).index(match)
@@ -87,6 +100,10 @@ class MatchPageParams:
     def parse_page(self):
         if self.MATCH_PAGE is None:
             self.MATCH_PAGE = get_parsed_page(PREFIX + self.match, proxyDict, proxyAuth)
+
+
+
+
 
     def _get_score_(self):
         self.parse_page()
@@ -136,8 +153,10 @@ class MatchPageParams:
         self.parse_page()
         ranks = self.MATCH_PAGE.find('div', {'class': 'lineups'}).\
                 find_all('div', {'class': 'box-headline'})
+        print(range(len(ranks)))
         for i in range(len(ranks)):
             ranks[i] = ranks[i].find('div', {'class': 'teamRanking'}).text
+            
             self.df[f'rank{i + 1}'][self.MATCH_ID] = ranks[i]
             
     def add_ranks(self):
@@ -212,13 +231,26 @@ class MatchPageParams:
                     self._get_5last_score_type_(team_id, match_id)
 
     def _get_5last_opponents_(self, team_id):
+        # Parse the page to ensure MATCH_PAGE is populated
         self.parse_page()
+        
+        # Initialize an empty list to store opponent URLs
         arr = []
-        tmp = self.MATCH_PAGE.find('div', {'class': 'past-matches'}).\
-                find_all('div', {'class': 'half-width'})[team_id].find('table', {'class': 'matches'}).\
-                find_all('tr', {'class': 'table'})
-        for i in tmp:
-            arr += [i.find('td', {'class': 'opponent'}).find('a')['href']]
+        
+        try:
+            # Locate the past matches section and extract the relevant team matches
+            matches_section = self.MATCH_PAGE.find('div', {'class': 'past-matches'})
+            team_matches = matches_section.find_all('div', {'class': 'half-width'})[team_id]
+            match_rows = team_matches.find('table', {'class': 'matches'}).find_all('tr', {'class': 'table'})
+            
+            # Extract opponent URLs using list comprehension
+            arr = [row.find('td', {'class': 'opponent'}).find('a')['href'] for row in match_rows]
+            
+        except (AttributeError, IndexError) as e:
+            # Handle potential errors in finding elements
+            print(f"Error while extracting opponents for team {team_id}: {e}")
+        
+        # Store the extracted URLs in the dataframe
         self.df[f'opponents_url_history_team{team_id + 1}'][self.MATCH_ID] = arr
         
     
@@ -939,3 +971,12 @@ class MapsStatTeamFull:
 
 
 
+if __name__ == "__main__":
+    proxy = TorProxy()
+    proxy.start_changing_ip(interval=3)
+    df = get_results_url("result",pages_with_results=range(0,2)).iloc[:10]
+    results = MatchPageParams(df).add_all_params()
+    os.system("cls")
+    df.to_csv('final_results.csv', index=False)
+    proxy.stop_changing_ip()
+    print("Finished")
