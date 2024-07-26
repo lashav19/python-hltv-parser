@@ -1,4 +1,5 @@
 import requests
+import warnings
 import urllib
 import datetime
 from bs4 import BeautifulSoup
@@ -15,6 +16,7 @@ from src.proxy import TorProxy
 import os
 
 pd.options.mode.chained_assignment = None 
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 PREFIX = 'https://www.hltv.org'
 proxyDict = {
@@ -23,11 +25,18 @@ proxyDict = {
 }
 proxyAuth = None
 
+file_path = 'src/tokens.txt'
+
+# List comprehension to read lines from the file and strip whitespace
+postman_tokens = [line.strip() for line in open(file_path, 'r')]
+print(postman_tokens)
 def get_parsed_page(url, proxy_=None, auth_=None, COOKIE=None):
     TIMESLEEP = 1
     time.sleep(TIMESLEEP)
+
     headers = {
-        'Postman-Token': 'a9b83736-0889-425d-95d8-80685848346b',
+        
+        'Postman-Token': random.choice(postman_tokens),
         'User-Agent': 'PostmanRuntime/7.37.3',
         'Cookie': COOKIE
     }
@@ -883,13 +892,21 @@ class MapsStatTeamFull:
             return score
             
         tmp = self.STAT_PAGE.find_all('div', {'class': 'columns'})
+        
+        # Check if tmp has the expected elements
+        if len(tmp) < 2:
+            print(f"Expected at least 2 elements in tmp, but got {len(tmp)}")
+            return 0
+        
         table = tmp[0].find('div', {'class': 'stats-rows'}).\
                 find_all('div', {'class': 'stats-row'})
         for param in params:
             self.dfNew[param + f'_team{team_id}'][self.idx] = _get_params_(team_id, param, table)
+        
         table = tmp[1].find_all('div', {'class': 'big-padding'})
         for param in params1:
             self.dfNew[param + f'_team{team_id}'][self.idx] = _get_params1_(team_id, param, table)
+        
         table = self.STAT_PAGE.find('table', {'class': 'stats-table'}).\
                 find('tbody').find_all('tr')
         for pos in range(len(params2)):
@@ -930,14 +947,13 @@ class MapsStatTeamFull:
                 if self.dfNew[param][self.idx] == "":
                     return 1
             return 0
-        
+
         for map_url, map_name, score1_map, score2_map, counter \
                 in zip(maps_url, maps_name, score1_maps, score2_maps, range(len(maps_name))):
-            # print(map_name)
             if map_name:
                 columns = ['Times played', 'Total rounds played', 'Rounds won', 'Win percent',
-                           'Pistol rounds', 'Pistol rounds won', 'Pistol round win percent',
-                           'CT round win percent', 'T round win percent']
+                        'Pistol rounds', 'Pistol rounds won', 'Pistol round win percent',
+                        'CT round win percent', 'T round win percent']
                 columns1 = ['Round win percent after getting first kill',
                             'Round win percent after receiving first death']
                 columns2 = [f'current_map_played_{k + 1}'
@@ -956,26 +972,31 @@ class MapsStatTeamFull:
                             self.dfNew[i + f'_team{team_id}'] = ""
                             self.dfNew[i + '_opponent' + f'_team{team_id}'] = ""
                 else:
-                    self.dfNew = self.dfNew.append(self.df.iloc[self.MATCH_ID:self.MATCH_ID + 1].copy(), ignore_index=True)
+                    self.dfNew = pd.concat([self.dfNew, self.df.iloc[self.MATCH_ID:self.MATCH_ID + 1].copy()], ignore_index=True)
                     self.idx += 1
                 # print(self.idx)
                 for team_id in range(1, 3):
                     #if check_null_in_line(team_id, columns, columns1, columns2):
-                    url = MAP_STAT_PR + str(id_maps[map_name]) + '/' +\
-                          (df[f'url_team{team_id}'][self.MATCH_ID]).split('/team/')[-1] +\
-                          f'?startDate={self.start_date}&endDate={self.finish_date}'
+                    url = MAP_STAT_PR + str(id_maps.get(map_name)) + '/' +\
+                        (df[f'url_team{team_id}'][self.MATCH_ID]).split('/team/')[-1] +\
+                        f'?startDate={self.start_date}&endDate={self.finish_date}'
                     print(url)
                     self.STAT_PAGE = get_parsed_page(url, proxyDict, proxyAuth)
                     self._get_stat_(team_id, columns, columns1, columns2,
                                     score1_map, score2_map, counter, picks)
 
 
-
 if __name__ == "__main__":
     proxy = TorProxy()
     proxy.start_changing_ip(interval=3)
-    df = get_results_url("result",pages_with_results=range(0,2)).iloc[:10]
-    results = MatchPageParams(df).add_all_params()
+    df = get_results_url("result",pages_with_results=range(0,2)).iloc[:1]
+    MatchPageParams(df).add_all_params()
+    Tour(df).add_all_params()
+    PlStatInTeam(df).add_all_params()
+    PlStatAll(df).add_all_params()
+    AllMapsStat(df).add_all_params()
+    MapsStatTeamFull(df).add_all_params()
+    
     os.system("cls")
     df.to_csv('final_results.csv', index=False)
     proxy.stop_changing_ip()
