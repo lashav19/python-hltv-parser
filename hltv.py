@@ -989,7 +989,7 @@ class MapsStatTeamFull:
 if __name__ == "__main__":
     proxy = TorProxy()
     proxy.start_changing_ip(interval=3)
-    df = get_results_url("result",pages_with_results=range(0,2)).iloc[:1]
+    df = get_results_url(pages_with_results=range(1)).iloc[-1]
     MatchPageParams(df).add_all_params()
     Tour(df).add_all_params()
     PlStatInTeam(df).add_all_params()
